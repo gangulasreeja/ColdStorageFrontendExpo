@@ -26,7 +26,7 @@
 // export const getSensorReadings = async (deviceID) => {
 //   return api.get("/api/sensors/readings", {
 //     params: { deviceID },
-//   });
+//   });r
 // };
 
 // export default api;
@@ -34,7 +34,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 
-const API_BASE_URL = "http://172.20.234.218:5000";
+const API_BASE_URL = "https://final-year-project-gsll.onrender.com";
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -76,6 +76,14 @@ export const getSensorReadings = async (deviceID) => {
   return api.get("/api/sensors/readings", {
     params: { deviceID },
   });
+};
+
+export const getMyDevices = async () => {
+  return api.get("/api/devices/my");
+};
+
+export const logout = async () => {
+  await AsyncStorage.removeItem("token");
 };
 
 export default api;
