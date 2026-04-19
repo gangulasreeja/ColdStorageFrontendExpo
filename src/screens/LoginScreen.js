@@ -1,14 +1,14 @@
 import { useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    KeyboardAvoidingView,
-    Platform,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { login } from "../services/api";
 
@@ -52,8 +52,8 @@ export default function LoginScreen({ navigation }) {
       behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
       <View style={styles.content}>
-        <Text style={styles.title}>Cold Storage</Text>
-        <Text style={styles.subtitle}>Monitor your storage temperature</Text>
+        <Text style={styles.title}>Tiny Matix</Text>
+        <Text style={styles.subtitle}>Monitor your devices</Text>
 
         <View style={styles.form}>
           <TextInput
@@ -90,10 +90,11 @@ export default function LoginScreen({ navigation }) {
 
           <TouchableOpacity
             style={styles.registerLink}
-            onPress={() => navigation.navigate('Register')}
+            onPress={() => navigation.navigate("Register")}
           >
             <Text style={styles.registerLinkText}>
-              Don't have an account? <Text style={styles.registerLinkBold}>Sign Up</Text>
+              Don't have an account?{" "}
+              <Text style={styles.registerLinkBold}>Sign Up</Text>
             </Text>
           </TouchableOpacity>
         </View>

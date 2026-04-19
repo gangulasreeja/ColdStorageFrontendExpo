@@ -65,11 +65,19 @@ export const login = async (email, password) => {
   return response;
 };
 
-export const registerDevice = async (deviceID) => {
+export const registerDevice = async (deviceID, category) => {
   return api.post("/api/devices/register", {
     deviceID: deviceID,
-    sector: "default",
+    sector: category || "All Devices",
   });
+};
+
+export const setDeviceSettings = async (deviceID, minTemp, maxTemp) => {
+  return api.put(`/api/devices/${deviceID}/settings`, { minTemp, maxTemp });
+};
+
+export const getDeviceSettings = async (deviceID) => {
+  return api.get(`/api/devices/${deviceID}/settings`);
 };
 
 export const getSensorReadings = async (deviceID) => {

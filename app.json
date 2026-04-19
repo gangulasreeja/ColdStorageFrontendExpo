@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "ColdStorageAppExpo",
-    "slug": "ColdStorageAppExpo",
+    "name": "Tiny Matrix",
+    "slug": "tiny-matrix",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "coldstorageappexpo",
+    "scheme": "tinymatrix",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
@@ -13,14 +13,14 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#2196F3",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.anonymous.ColdStorageAppExpo"
+      "package": "com.tinymatrix.app"
     },
     "web": {
       "output": "static",

@@ -1,11 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
+  Dimensions,
   FlatList,
   Modal,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -13,10 +12,15 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { getMyDevices, getSensorReadings, logout } from "../services/api";
+import { getMyDevices, getSensorReadings, getDeviceSettings, logout } from "../services/api";
+
+const { width: SCREEN_WIDTH } = Dimensions.get("window");
+const GRAPH_WIDTH = SCREEN_WIDTH - 60;
+const GRAPH_HEIGHT = 150;
 
 const COLORS = {
   primary: "#2196F3",
+  primaryDark: "#1565C0",
   alert: "#F44336",
   alertBg: "#FFEBEE",
   normal: "#4CAF50",
@@ -25,336 +29,673 @@ const COLORS = {
   background: "#F5F5F5",
   textDark: "#212121",
   textMedium: "#757575",
+  textLight: "#BDBDBD",
   overlay: "rgba(0,0,0,0.5)",
+  graphLine: "#2196F3",
+  graphFill: "rgba(33, 150, 243, 0.2)",
+  graphGrid: "#E0E0E0",
 };
+
+const CATEGORIES = [
+  { id: "All Devices", icon: "🌡️", label: "All Devices" },
+  { id: "Home Automation", icon: "🏠", label: "Home Automation" },
+  { id: "Supply Chain", icon: "🚚", label: "Supply Chain" },
+  { id: "Medical", icon: "🏥", label: "Medical" },
+  { id: "Environmental", icon: "🍃", label: "Environmental" },
+  { id: "Logistics", icon: "📋", label: "Logistics" },
+];
 
 const TEMP_THRESHOLD = 10;
 
 export default function DashboardScreen({ route, navigation }) {
-  const [readings, setReadings] = useState([]);
-  const [alerts, setAlerts] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [menuVisible, setMenuVisible] = useState(false);
   const [devices, setDevices] = useState([]);
+  const [selectedDevice, setSelectedDevice] = useState(null);
+  const [readings, setReadings] = useState([]);
+  const [deviceSettings, setDeviceSettings] = useState({ minTemp: null, maxTemp: null });
+  const [loading, setLoading] = useState(true);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const user = route.params?.user || {};
-  const [deviceID, setDeviceID] = useState(route.params?.deviceID);
 
-  const fetchSensorData = useCallback(async () => {
-    if (!deviceID) {
-      setLoading(false);
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const response = await getSensorReadings(deviceID);
-      setReadings(response.data.items || []);
-      setAlerts(response.data.alerts || []);
-    } catch (error) {
-      Alert.alert("Error", "Failed to load sensor data");
-    } finally {
-      setLoading(false);
-    }
-  }, [deviceID]);
+  // Default thresholds
+  const defaultMinTemp = 2;
+  const defaultMaxTemp = 8;
+  const minTemp = deviceSettings.minTemp ?? defaultMinTemp;
+  const maxTemp = deviceSettings.maxTemp ?? defaultMaxTemp;
 
   const fetchDevices = async () => {
+    setLoading(true);
     try {
       const response = await getMyDevices();
       setDevices(response.data.devices || []);
     } catch (error) {
-      console.log("Failed to fetch devices");
+      Alert.alert("Error", "Failed to load devices");
+    } finally {
+      setLoading(false);
     }
   };
 
-  useEffect(() => {
-    fetchSensorData();
-  }, [fetchSensorData]);
+  const fetchDeviceData = async (deviceID) => {
+    try {
+      const [readingsRes, settingsRes] = await Promise.all([
+        getSensorReadings(deviceID),
+        getDeviceSettings(deviceID).catch(() => ({ data: {} })),
+      ]);
+      setReadings(readingsRes.data.items || []);
+      setDeviceSettings({
+        minTemp: settingsRes.data?.minTemp ?? null,
+        maxTemp: settingsRes.data?.maxTemp ?? null,
+      });
+    } catch (error) {
+      Alert.alert("Error", "Failed to load sensor data");
+    }
+  };
 
   useEffect(() => {
     fetchDevices();
   }, []);
 
   useEffect(() => {
-    const isHighTemp =
-      readings.length > 0 &&
-      typeof readings[0]?.temperature === "number" &&
-      readings[0].temperature > TEMP_THRESHOLD;
-
-    if (!loading && isHighTemp) {
-      Alert.alert(
-        "⚠️ Temperature Alert!",
-        `Current temperature is ${readings[0].temperature}°C which exceeds the threshold of ${TEMP_THRESHOLD}°C.\n\nDevice: ${deviceID}`,
-        [{ text: "OK" }]
-      );
+    if (selectedDevice) {
+      fetchDeviceData(selectedDevice.deviceID);
     }
-  }, [loading, readings]);
+  }, [selectedDevice]);
+
+  // Check for temperature alerts
+  useEffect(() => {
+    if (readings.length > 0 && readings[0]) {
+      const temp = readings[0].temperature;
+      if (temp != null && (temp < minTemp || temp > maxTemp)) {
+        Alert.alert(
+          "⚠️ Temperature Alert!",
+          `Current: ${temp}°C (Required: ${minTemp}°C - ${maxTemp}°C)`,
+          [{ text: "OK" }]
+        );
+      }
+    }
+  }, [readings, minTemp, maxTemp]);
+
+  const handleDeviceSelect = (device) => {
+    setSelectedDevice(device);
+  };
+
+  const handleBack = () => {
+    setSelectedDevice(null);
+    setReadings([]);
+  };
 
   const handleLogout = async () => {
     await logout();
     navigation.replace("Login");
   };
 
-  const handleDeviceSelect = (selectedDevice) => {
-    setDeviceID(selectedDevice.deviceID);
-    setMenuVisible(false);
-    fetchSensorData();
-  };
-
   const handleAddDevice = () => {
-    setMenuVisible(false);
+    setMenuOpen(false);
     navigation.navigate("DeviceSetup", { user });
   };
 
-  const currentReading = readings.length > 0 ? readings[0] : null;
-  const temperature = currentReading?.temperature ?? "--";
-  const timestamp = currentReading?.timestamp ?? "--";
-  const isHighTemp =
-    typeof temperature === "number" && temperature > TEMP_THRESHOLD;
-  const status = isHighTemp ? "ALERT" : "NORMAL";
-  const statusColor = isHighTemp ? COLORS.alert : COLORS.normal;
-  const statusBg = isHighTemp ? COLORS.alertBg : COLORS.normalBg;
+  const formatTimestamp = (ts) => {
+    if (!ts) return "--";
+    // If timestamp is a number like 2166, return as-is for now
+    if (typeof ts === "number") return ts.toString();
+    // Try to format if it's a date string
+    try {
+      const date = new Date(ts);
+      if (!isNaN(date.getTime())) {
+        return date.toLocaleString();
+      }
+    } catch (e) {}
+    return String(ts);
+  };
 
-  const renderDeviceItem = ({ item }) => (
-    <TouchableOpacity
-      style={[
-        styles.deviceItem,
-        item.deviceID === deviceID && styles.deviceItemActive,
-      ]}
-      onPress={() => handleDeviceSelect(item)}
-    >
-      <View style={styles.deviceInfo}>
-        <Text style={styles.deviceName}>{item.deviceID}</Text>
-        <Text style={styles.deviceSector}>Sector: {item.sector || "default"}</Text>
-      </View>
-      {item.deviceID === deviceID && (
-        <Text style={styles.activeIndicator}>✓</Text>
-      )}
-    </TouchableOpacity>
-  );
+  const handleSettings = () => {
+    navigation.navigate("Settings", { deviceID: selectedDevice?.deviceID });
+  };
 
-  if (loading) {
+  const handleRefresh = () => {
+    if (selectedDevice) {
+      fetchDeviceData(selectedDevice.deviceID);
+    }
+  };
+
+  const getDevicesByCategory = (categoryId) => {
+    if (categoryId === "All Devices") return devices;
+    return devices.filter((d) => d.sector === categoryId);
+  };
+
+  // Temperature Graph Component
+  const TemperatureGraph = ({ data, minTemp, maxTemp }) => {
+    const temps = data.slice(0, 20).reverse();
+    if (temps.length === 0) {
+      return (
+        <View style={styles.graphContainer}>
+          <Text style={styles.noDataText}>No data available</Text>
+        </View>
+      );
+    }
+
+    const allTemps = temps.map(r => r.temperature);
+    const minData = Math.min(...allTemps, minTemp) - 2;
+    const maxData = Math.max(...allTemps, maxTemp) + 2;
+    const range = maxData - minData || 1;
+    const dataPoints = temps.map(r => r.temperature);
+
     return (
-      <SafeAreaView style={styles.container}>
+      <View style={styles.graphContainer}>
+        <View style={styles.graphHeader}>
+          <Text style={styles.graphTitle}>Temperature History</Text>
+          <Text style={styles.graphCount}>{temps.length} readings</Text>
+        </View>
+        
+        <View style={styles.graph}>
+          <View style={styles.yAxis}>
+            <Text style={styles.yAxisLabel}>{Math.round(maxData)}°</Text>
+            <Text style={styles.yAxisLabel}>{(minData + maxData) / 2}°</Text>
+            <Text style={styles.yAxisLabel}>{Math.round(minData)}°</Text>
+          </View>
+          
+          <View style={styles.graphArea}>
+            <View style={[styles.gridLine, { top: ((maxTemp - minData) / range) * GRAPH_HEIGHT }]} />
+            <View style={[styles.gridLine, { top: ((minTemp - minData) / range) * GRAPH_HEIGHT }]} />
+            
+            <View style={styles.lineContainer}>
+              {dataPoints.map((temp, index) => {
+                if (temp == null) return null;
+                const x = (index / (dataPoints.length - 1 || 1)) * (GRAPH_WIDTH - 40);
+                const y = GRAPH_HEIGHT - ((temp - minData) / range) * GRAPH_HEIGHT;
+                return (
+                  <View
+                    key={index}
+                    style={[
+                      styles.dataPoint,
+                      { left: x, top: y },
+                      temp > maxTemp || temp < minTemp ? styles.dataPointAlert : styles.dataPointNormal,
+                    ]}
+                  />
+                );
+              })}
+            </View>
+          </View>
+        </View>
+        
+        <View style={styles.legendContainer}>
+          <View style={styles.legendItem}>
+            <View style={[styles.legendDot, { backgroundColor: COLORS.alert }]} />
+            <Text style={styles.legendText}>Min: {minTemp}° Max: {maxTemp}°</Text>
+          </View>
+        </View>
+      </View>
+    );
+  };
+
+  // Device Detail View
+  if (selectedDevice) {
+    const currentReading = readings.length > 0 ? readings[0] : null;
+    const temperature = currentReading?.temperature ?? "--";
+    const timestamp = currentReading?.timestamp ?? "--";
+    const isHighTemp = typeof temperature === "number" && temperature > maxTemp;
+    const isLowTemp = typeof temperature === "number" && temperature < minTemp;
+    const isNormal = !isHighTemp && !isLowTemp;
+
+    return (
+      <View style={styles.container}>
         <StatusBar backgroundColor={COLORS.primary} barStyle="light-content" />
+        
+        {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.headerTitle}>Cold Storage</Text>
-          <TouchableOpacity onPress={() => setMenuVisible(true)}>
+          <TouchableOpacity onPress={handleBack} style={styles.backButton}>
+            <Text style={styles.backButtonText}>← Back</Text>
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>{selectedDevice.deviceID}</Text>
+          <TouchableOpacity onPress={() => setMenuOpen(true)}>
             <Text style={styles.menuIcon}>☰</Text>
           </TouchableOpacity>
         </View>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={COLORS.primary} />
-          <Text style={styles.loadingText}>Loading sensor data...</Text>
-        </View>
 
-        <Modal
-          visible={menuVisible}
-          transparent
-          animationType="slide"
-          onRequestClose={() => setMenuVisible(false)}
-        >
-          <Pressable style={styles.modalOverlay} onPress={() => setMenuVisible(false)}>
+        <ScrollView style={styles.content}>
+          {/* Current Temperature */}
+<View style={[styles.tempCard, !isNormal && styles.tempCardAlert]}>
+            <View style={[styles.statusBadge, { backgroundColor: isNormal ? COLORS.normalBg : COLORS.alertBg }]}>
+              <Text style={[styles.statusText, { color: isNormal ? COLORS.normal : COLORS.alert }]}>
+                {isHighTemp ? "HIGH" : isLowTemp ? "LOW" : "NORMAL"}
+              </Text>
+            </View>
+            <Text style={styles.timestampText}>Updated: {formatTimestamp(timestamp)}</Text>
+          </View>
+
+          {/* Graph */}
+          <TemperatureGraph data={readings} minTemp={minTemp} maxTemp={maxTemp} />
+
+          {/* Request New Data Button */}
+          <TouchableOpacity style={styles.refreshButton} onPress={handleRefresh}>
+            <Text style={styles.refreshButtonText}>🔄 Request New Data</Text>
+          </TouchableOpacity>
+
+          {/* Settings Button */}
+          <TouchableOpacity style={styles.settingsButton} onPress={handleSettings}>
+            <Text style={styles.settingsButtonText}>⚙️ Temperature Settings</Text>
+          </TouchableOpacity>
+        </ScrollView>
+
+        {/* Menu Modal */}
+        <Modal visible={menuOpen} transparent animationType="slide">
+          <Pressable style={styles.modalOverlay} onPress={() => setMenuOpen(false)}>
             <View style={styles.menuContainer}>
               <View style={styles.menuHeader}>
-                <Text style={styles.menuTitle}>📱 My Devices</Text>
-                <TouchableOpacity onPress={() => setMenuVisible(false)}>
+                <Text style={styles.menuTitle}>☰ Menu</Text>
+                <TouchableOpacity onPress={() => setMenuOpen(false)}>
                   <Text style={styles.closeButton}>✕</Text>
                 </TouchableOpacity>
               </View>
-              <FlatList
-                data={devices}
-                renderItem={renderDeviceItem}
-                keyExtractor={(item) => item.deviceID}
-                ListEmptyComponent={
-                  <Text style={styles.emptyText}>No devices registered</Text>
-                }
-              />
               <TouchableOpacity style={styles.addDeviceButton} onPress={handleAddDevice}>
                 <Text style={styles.addDeviceText}>+ Add New Device</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-                <Text style={styles.logoutText}>Logout</Text>
+                <Text style={styles.logoutText}>🚪 Logout</Text>
               </TouchableOpacity>
             </View>
           </Pressable>
         </Modal>
-      </SafeAreaView>
+      </View>
     );
   }
 
+  // Home View
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       <StatusBar backgroundColor={COLORS.primary} barStyle="light-content" />
-
+      
+      {/* Header */}
       <View style={styles.header}>
-        <View>
-          <Text style={styles.headerTitle}>Cold Storage</Text>
-          <Text style={styles.headerSubtitle}>Welcome, {user.name || "User"}</Text>
+        <View style={styles.logoContainer}>
+          <Text style={styles.logoText}>TM</Text>
         </View>
-        <TouchableOpacity onPress={() => setMenuVisible(true)}>
+        <Text style={styles.headerTitle}>Tiny Matrix</Text>
+        <TouchableOpacity onPress={() => setMenuOpen(true)}>
           <Text style={styles.menuIcon}>☰</Text>
         </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
-        <View style={styles.card}>
-          <Text style={styles.cardLabel}>Device ID</Text>
-          <Text style={styles.deviceValue}>{deviceID || "Not connected"}</Text>
-        </View>
+      {/* Device List */}
+      <ScrollView style={styles.content}>
+        {CATEGORIES.map((category) => {
+          const categoryDevices = getDevicesByCategory(category.id);
+          if (categoryDevices.length === 0) return null;
 
-        <View style={[styles.tempCard, isHighTemp && styles.tempCardAlert]}>
-          <Text style={styles.tempLabel}>Current Temperature</Text>
-          <Text style={[styles.tempValue, isHighTemp && styles.tempValueAlert]}>
-            {temperature}°C
-          </Text>
-          <View style={[styles.statusBadge, { backgroundColor: statusBg }]}>
-            <Text style={[styles.statusText, { color: statusColor }]}>{status}</Text>
-          </View>
-          <Text style={styles.timestampText}>Updated: {timestamp}</Text>
-        </View>
-
-        <View style={styles.statsRow}>
-          <View style={styles.statCard}>
-            <Text style={styles.statValue}>{readings.length}</Text>
-            <Text style={styles.statLabel}>Readings</Text>
-          </View>
-          <View style={[styles.statCard, alerts.length > 0 && styles.statCardAlert]}>
-            <Text style={[styles.statValue, alerts.length > 0 && styles.statValueAlert]}>
-              {alerts.length}
-            </Text>
-            <Text style={styles.statLabel}>Alerts</Text>
-          </View>
-        </View>
-
-        {alerts.length > 0 && (
-          <View style={styles.alertsSection}>
-            <Text style={styles.sectionTitle}>Active Alerts ({alerts.length})</Text>
-            {alerts.map((alert, index) => (
-              <View key={index} style={styles.alertCard}>
-                <Text style={styles.alertType}>{alert.type}</Text>
-                <Text style={styles.alertMessage}>{alert.message}</Text>
+          return (
+            <View key={category.id} style={styles.categorySection}>
+              <View style={styles.categoryHeader}>
+                <Text style={styles.categoryIcon}>{category.icon}</Text>
+                <Text style={styles.categoryLabel}>{category.label}</Text>
+                <Text style={styles.categoryCount}>{categoryDevices.length}</Text>
               </View>
-            ))}
+              <FlatList
+                data={categoryDevices}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={styles.deviceCard}
+                    onPress={() => handleDeviceSelect(item)}
+                  >
+                    <Text style={styles.deviceID}>{item.deviceID}</Text>
+                    <Text style={styles.deviceArrow}>›</Text>
+                  </TouchableOpacity>
+                )}
+                keyExtractor={(item) => item.deviceID}
+                scrollEnabled={false}
+              />
+            </View>
+          );
+        })}
+
+        {devices.length === 0 && !loading && (
+          <View style={styles.emptyContainer}>
+            <Text style={styles.emptyText}>No devices registered</Text>
+            <TouchableOpacity style={styles.emptyButton} onPress={handleAddDevice}>
+              <Text style={styles.emptyButtonText}>+ Add Device</Text>
+            </TouchableOpacity>
           </View>
         )}
-
-        <TouchableOpacity style={styles.refreshButton} onPress={fetchSensorData}>
-          <Text style={styles.refreshButtonText}>🔄 Refresh Data</Text>
-        </TouchableOpacity>
       </ScrollView>
 
-      <Modal
-        visible={menuVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setMenuVisible(false)}
-      >
-        <Pressable style={styles.modalOverlay} onPress={() => setMenuVisible(false)}>
+      {/* Menu Modal */}
+      <Modal visible={menuOpen} transparent animationType="slide">
+        <Pressable style={styles.modalOverlay} onPress={() => setMenuOpen(false)}>
           <View style={styles.menuContainer}>
             <View style={styles.menuHeader}>
-              <Text style={styles.menuTitle}>📱 My Devices</Text>
-              <TouchableOpacity onPress={() => setMenuVisible(false)}>
+              <Text style={styles.menuTitle}>☰ Menu</Text>
+              <TouchableOpacity onPress={() => setMenuOpen(false)}>
                 <Text style={styles.closeButton}>✕</Text>
               </TouchableOpacity>
             </View>
-            <FlatList
-              data={devices}
-              renderItem={renderDeviceItem}
-              keyExtractor={(item) => item.deviceID}
-              ListEmptyComponent={
-                <Text style={styles.emptyText}>No devices registered</Text>
-              }
-            />
+
+            {/* User Profile */}
+            <View style={styles.userProfile}>
+              <View style={styles.avatar}>
+                <Text style={styles.avatarText}>TM</Text>
+              </View>
+              <Text style={styles.userName}>{user.name || "User"}</Text>
+            </View>
+
+            <Text style={styles.sectionLabel}>Sub Applications</Text>
+
+            {CATEGORIES.map((cat) => {
+              const catDevices = getDevicesByCategory(cat.id);
+              return (
+                <TouchableOpacity
+                  key={cat.id}
+                  style={styles.menuItem}
+                  onPress={() => setMenuOpen(false)}
+                >
+                  <Text style={styles.menuItemIcon}>{cat.icon}</Text>
+                  <Text style={styles.menuItemText}>{cat.label}</Text>
+                  {catDevices.length > 0 && (
+                    <Text style={styles.menuItemBadge}>{catDevices.length}</Text>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+
             <TouchableOpacity style={styles.addDeviceButton} onPress={handleAddDevice}>
               <Text style={styles.addDeviceText}>+ Add New Device</Text>
             </TouchableOpacity>
+
             <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-              <Text style={styles.logoutText}>Logout</Text>
+              <Text style={styles.logoutText}>🚪 Logout</Text>
             </TouchableOpacity>
           </View>
         </Pressable>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.background },
+  container: {
+    flex: 1,
+    backgroundColor: COLORS.background,
+  },
+  
+  // Header
   header: {
     backgroundColor: COLORS.primary,
-    padding: 20,
+    paddingTop: 50,
+    paddingBottom: 15,
+    paddingHorizontal: 15,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  logoContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: COLORS.white,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  logoText: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: COLORS.primary,
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: COLORS.white,
+  },
+  backButton: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  backButtonText: {
+    color: COLORS.white,
+    fontSize: 16,
+    fontWeight: "bold",
+  },
+  menuIcon: {
+    fontSize: 24,
+    color: COLORS.white,
+  },
+  
+  // Content
+  content: {
+    flex: 1,
+    padding: 15,
+  },
+  
+  // Category
+  categorySection: {
+    marginBottom: 20,
+  },
+  categoryHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  categoryIcon: {
+    fontSize: 18,
+    marginRight: 8,
+  },
+  categoryLabel: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: COLORS.textDark,
+    flex: 1,
+  },
+  categoryCount: {
+    backgroundColor: COLORS.primary,
+    color: COLORS.white,
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    fontSize: 12,
+    fontWeight: "bold",
+  },
+  deviceCard: {
+    backgroundColor: COLORS.white,
+    padding: 15,
+    borderRadius: 10,
+    marginBottom: 8,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+    elevation: 2,
   },
-  headerTitle: { fontSize: 22, fontWeight: "bold", color: COLORS.white },
-  headerSubtitle: { fontSize: 14, color: COLORS.white, opacity: 0.9, marginTop: 2 },
-  menuIcon: { fontSize: 24, color: COLORS.white },
-  loadingContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
-  loadingText: { marginTop: 16, fontSize: 16, color: COLORS.textMedium },
-  scrollView: { flex: 1 },
-  scrollContent: { padding: 16 },
-  card: {
-    backgroundColor: COLORS.white,
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 16,
-    alignItems: "center",
-    elevation: 3,
+  deviceID: {
+    fontSize: 16,
+    color: COLORS.textDark,
+    fontWeight: "500",
   },
-  cardLabel: { fontSize: 14, color: COLORS.textMedium, marginBottom: 4 },
-  deviceValue: { fontSize: 18, fontWeight: "bold", color: COLORS.textDark },
+  deviceArrow: {
+    fontSize: 24,
+    color: COLORS.textLight,
+  },
+  
+  // Temperature Card
   tempCard: {
     backgroundColor: COLORS.primary,
     borderRadius: 20,
-    padding: 24,
-    marginBottom: 16,
+    padding: 25,
+    marginBottom: 15,
     alignItems: "center",
-    elevation: 6,
   },
-  tempCardAlert: { backgroundColor: COLORS.alert },
-  tempLabel: { fontSize: 14, color: COLORS.white, opacity: 0.9 },
-  tempValue: { fontSize: 72, fontWeight: "bold", color: COLORS.white, marginVertical: 12 },
-  tempValueAlert: { color: COLORS.white },
-  statusBadge: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20 },
-  statusText: { fontSize: 14, fontWeight: "bold" },
-  timestampText: { fontSize: 12, color: COLORS.white, opacity: 0.7, marginTop: 12 },
-  statsRow: { flexDirection: "row", gap: 12, marginBottom: 16 },
-  statCard: {
-    flex: 1,
-    backgroundColor: COLORS.white,
-    borderRadius: 16,
-    padding: 20,
-    alignItems: "center",
-    elevation: 3,
+  tempCardAlert: {
+    backgroundColor: COLORS.alert,
   },
-  statCardAlert: { backgroundColor: COLORS.alertBg },
-  statValue: { fontSize: 32, fontWeight: "bold", color: COLORS.textDark },
-  statValueAlert: { color: COLORS.alert },
-  statLabel: { fontSize: 14, color: COLORS.textMedium, marginTop: 4 },
-  alertsSection: { marginBottom: 16 },
-  sectionTitle: { fontSize: 18, fontWeight: "bold", color: COLORS.textDark, marginBottom: 12 },
-  alertCard: {
+  tempLabel: {
+    fontSize: 14,
+    color: COLORS.white,
+    opacity: 0.9,
+  },
+  tempValue: {
+    fontSize: 56,
+    fontWeight: "bold",
+    color: COLORS.white,
+    marginVertical: 8,
+  },
+  statusBadge: {
+    paddingHorizontal: 18,
+    paddingVertical: 5,
+    borderRadius: 15,
+  },
+  statusText: {
+    fontSize: 14,
+    fontWeight: "bold",
+  },
+  timestampText: {
+    fontSize: 12,
+    color: COLORS.white,
+    opacity: 0.7,
+    marginTop: 8,
+  },
+  
+  // Graph
+  graphContainer: {
     backgroundColor: COLORS.white,
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-    borderLeftWidth: 4,
-    borderLeftColor: COLORS.alert,
+    borderRadius: 15,
+    padding: 15,
+    marginBottom: 15,
     elevation: 2,
   },
-  alertType: { fontSize: 16, fontWeight: "bold", color: COLORS.textDark, marginBottom: 4 },
-  alertMessage: { fontSize: 14, color: COLORS.textMedium },
+  graphHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 10,
+  },
+  graphTitle: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: COLORS.textDark,
+  },
+  graphCount: {
+    fontSize: 12,
+    color: COLORS.textMedium,
+  },
+  graph: {
+    flexDirection: "row",
+    height: GRAPH_HEIGHT,
+  },
+  yAxis: {
+    width: 30,
+    justifyContent: "space-between",
+  },
+  yAxisLabel: {
+    fontSize: 10,
+    color: COLORS.textMedium,
+  },
+  graphArea: {
+    flex: 1,
+    position: "relative",
+  },
+  gridLine: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    height: 1,
+    backgroundColor: COLORS.graphGrid,
+  },
+  lineContainer: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  dataPoint: {
+    position: "absolute",
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginLeft: -5,
+    marginTop: -5,
+  },
+  dataPointNormal: {
+    backgroundColor: COLORS.primary,
+  },
+  dataPointAlert: {
+    backgroundColor: COLORS.alert,
+  },
+  xAxisLabel: {
+    fontSize: 10,
+    color: COLORS.textMedium,
+    textAlign: "right",
+    marginTop: 5,
+  },
+  legendContainer: {
+    flexDirection: "row",
+    justifyContent: "center",
+    marginTop: 10,
+  },
+  legendItem: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  legendDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginRight: 5,
+  },
+  legendText: {
+    fontSize: 12,
+    color: COLORS.textMedium,
+  },
+  noDataText: {
+    fontSize: 14,
+    color: COLORS.textMedium,
+    textAlign: "center",
+    padding: 20,
+  },
+  
+  // Buttons
   refreshButton: {
     backgroundColor: COLORS.primary,
-    padding: 16,
+    padding: 15,
     borderRadius: 12,
     alignItems: "center",
-    marginTop: 8,
-    elevation: 4,
   },
-  refreshButtonText: { color: COLORS.white, fontSize: 16, fontWeight: "bold" },
+  refreshButtonText: {
+    color: COLORS.white,
+    fontSize: 16,
+    fontWeight: "bold",
+  },
+  settingsButton: {
+    backgroundColor: COLORS.white,
+    padding: 15,
+    borderRadius: 12,
+    alignItems: "center",
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+  },
+  settingsButtonText: {
+    color: COLORS.primary,
+    fontSize: 16,
+    fontWeight: "bold",
+  },
+  
+  // Empty
+  emptyContainer: {
+    alignItems: "center",
+    padding: 40,
+  },
+  emptyText: {
+    fontSize: 16,
+    color: COLORS.textMedium,
+    marginBottom: 15,
+  },
+  emptyButton: {
+    backgroundColor: COLORS.normal,
+    paddingHorizontal: 25,
+    paddingVertical: 12,
+    borderRadius: 10,
+  },
+  emptyButtonText: {
+    color: COLORS.white,
+    fontSize: 16,
+    fontWeight: "bold",
+  },
+  
+  // Modal/Menu
   modalOverlay: {
     flex: 1,
     backgroundColor: COLORS.overlay,
@@ -364,48 +705,112 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.white,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    paddingBottom: 30,
-    maxHeight: "70%",
+    padding: 20,
+    paddingBottom: 40,
+    maxHeight: "85%",
   },
   menuHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    padding: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.background,
+    marginBottom: 20,
   },
-  menuTitle: { fontSize: 20, fontWeight: "bold", color: COLORS.textDark },
-  closeButton: { fontSize: 24, color: COLORS.textMedium },
-  deviceItem: {
-    flexDirection: "row",
-    justifyContent: "space-between",
+  menuTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: COLORS.textDark,
+  },
+  closeButton: {
+    fontSize: 24,
+    color: COLORS.textMedium,
+  },
+  
+  // User Profile
+  userProfile: {
     alignItems: "center",
-    padding: 16,
+    marginBottom: 25,
+    paddingBottom: 20,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.background,
   },
-  deviceItemActive: { backgroundColor: COLORS.primary + "10" },
-  deviceInfo: { flex: 1 },
-  deviceName: { fontSize: 16, fontWeight: "bold", color: COLORS.textDark },
-  deviceSector: { fontSize: 12, color: COLORS.textMedium, marginTop: 2 },
-  activeIndicator: { fontSize: 20, color: COLORS.primary },
-  emptyText: { textAlign: "center", color: COLORS.textMedium, padding: 20 },
+  avatar: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: COLORS.primary,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  avatarText: {
+    fontSize: 24,
+    fontWeight: "bold",
+    color: COLORS.white,
+  },
+  userName: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: COLORS.textDark,
+  },
+  
+  // Section Label
+  sectionLabel: {
+    fontSize: 12,
+    color: COLORS.textMedium,
+    marginBottom: 10,
+    textTransform: "uppercase",
+  },
+  
+  // Menu Item
+  menuItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.background,
+  },
+  menuItemIcon: {
+    fontSize: 20,
+    marginRight: 15,
+  },
+  menuItemText: {
+    flex: 1,
+    fontSize: 16,
+    color: COLORS.textDark,
+  },
+  menuItemBadge: {
+    backgroundColor: COLORS.primary,
+    color: COLORS.white,
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    fontSize: 12,
+    fontWeight: "bold",
+  },
+  
+  // Buttons
   addDeviceButton: {
     backgroundColor: COLORS.normal,
-    margin: 20,
-    padding: 16,
+    padding: 15,
     borderRadius: 12,
     alignItems: "center",
+    marginTop: 15,
   },
-  addDeviceText: { color: COLORS.white, fontSize: 16, fontWeight: "bold" },
+  addDeviceText: {
+    color: COLORS.white,
+    fontSize: 16,
+    fontWeight: "bold",
+  },
   logoutButton: {
-    marginHorizontal: 20,
-    padding: 16,
+    padding: 15,
     borderRadius: 12,
     alignItems: "center",
     borderWidth: 1,
     borderColor: COLORS.alert,
+    marginTop: 15,
   },
-  logoutText: { color: COLORS.alert, fontSize: 16, fontWeight: "bold" },
+  logoutText: {
+    color: COLORS.alert,
+    fontSize: 16,
+    fontWeight: "bold",
+  },
 });
