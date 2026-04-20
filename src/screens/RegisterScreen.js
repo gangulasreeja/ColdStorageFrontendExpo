@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import axios from 'axios';
 
-const API_BASE_URL = 'http://172.20.234.218:5000';
+const API_BASE_URL = 'https://final-year-project-gsll.onrender.com';
 
 export default function RegisterScreen({ navigation }) {
   const [name, setName] = useState('');

@@ -12,7 +12,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { getMyDevices, getSensorReadings, getDeviceSettings, logout } from "../services/api";
+import { getMyDevices, getSensorReadings, getDeviceSettings, requestNewData, logout } from "../services/api";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const GRAPH_WIDTH = SCREEN_WIDTH - 60;
@@ -152,9 +152,21 @@ export default function DashboardScreen({ route, navigation }) {
     navigation.navigate("Settings", { deviceID: selectedDevice?.deviceID });
   };
 
-  const handleRefresh = () => {
-    if (selectedDevice) {
+  const handleRefresh = async () => {
+    if (!selectedDevice) return;
+    
+    try {
+      const cmdRes = await requestNewData(selectedDevice.deviceID);
+      const command = cmdRes.data.command;
+      Alert.alert(
+        "Request Sent!",
+        `Command ID: ${command.commandID}\nStatus: ${command.status}`,
+        [{ text: "OK" }]
+      );
+      // Fetch latest data after command
       fetchDeviceData(selectedDevice.deviceID);
+    } catch (error) {
+      Alert.alert("Error", "Failed to send request");
     }
   };
 

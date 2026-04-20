@@ -86,6 +86,14 @@ export const getSensorReadings = async (deviceID) => {
   });
 };
 
+export const requestNewData = async (deviceID) => {
+  return api.post(`/api/sensors/${deviceID}/command`);
+};
+
+export const getCommands = async (deviceID) => {
+  return api.get(`/api/sensors/${deviceID}/commands`);
+};
+
 export const getMyDevices = async () => {
   return api.get("/api/devices/my");
 };
